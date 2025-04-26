@@ -68,4 +68,13 @@ public class OrderServiceImpl implements OrderService {
         return false;
     }
 
+
+    /*
+     扩展功能1：根据用户 ID 查询该用户的所有订单
+     */
+    @Override
+    public List<Order> getOrdersByUserId(Long userId) {
+        return orderRepository.findByUserId(userId);
+    }
+
 }
