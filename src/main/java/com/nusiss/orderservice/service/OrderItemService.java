@@ -1,4 +1,4 @@
 package com.nusiss.orderservice.service;
 
-public interface OrderItemServic {
+public interface OrderItemService {
 }
