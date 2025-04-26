@@ -66,5 +66,15 @@ public interface OrderService {
      */
     List<Order> filterOrders(String status, Date startDate, Date endDate, Double minAmount, Double maxAmount);
 
+    /*
+     扩展功能3：分页获取订单列表，并按指定字段排序
+     @param page         当前页码（从 1 开始）
+     @param size         每页数量
+     @param sortBy       排序字段（如 "order_date", "total_amount"）
+     @param sortOrder    排序方式（"asc" 或 "desc"）
+     @return 分页后的订单列表
+     */
+    List<Order> getOrdersWithPaginationAndSorting(int page, int size, String sortBy, String sortOrder);
+
 
 }
