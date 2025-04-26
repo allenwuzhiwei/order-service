@@ -117,4 +117,18 @@ public class OrderServiceImpl implements OrderService {
         return filtered;
     }
 
+    /*
+     扩展功能3：分页获取订单列表，并按指定字段排序
+     */
+    @Override
+    public List<Order> getOrdersWithPaginationAndSorting(int page, int size, String sortBy, String sortOrder) {
+        Sort sort = sortOrder.equalsIgnoreCase("desc")
+                ? Sort.by(sortBy).descending()
+                : Sort.by(sortBy).ascending();
+
+        Pageable pageable = PageRequest.of(page - 1, size, sort);
+        Page<Order> resultPage = orderRepository.findAll(pageable);
+        return resultPage.getContent();
+    }
+
 }
