@@ -54,5 +54,17 @@ public interface OrderService {
      */
     List<Order> getOrdersByUserId(Long userId);
 
+    /*
+     扩展功能2：多条件筛选订单（如状态、时间范围、金额范围）
+     所有参数均为可选，可组合使用
+     @param status       订单状态（可选）
+     @param startDate    下单开始时间（可选）
+     @param endDate      下单结束时间（可选）
+     @param minAmount    最小金额（可选）
+     @param maxAmount    最大金额（可选）
+     @return 满足条件的订单列表
+     */
+    List<Order> filterOrders(String status, Date startDate, Date endDate, Double minAmount, Double maxAmount);
+
 
 }
