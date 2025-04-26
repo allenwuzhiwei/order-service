@@ -77,4 +77,44 @@ public class OrderController {
         }
     }
 
+
+
+    /*
+     扩展功能1：根据用户ID查询该用户所有订单
+     */
+    @GetMapping("/user/{userId}")
+    public ResponseEntity<ApiResponse<List<Order>>> getOrdersByUserId(@PathVariable Long userId) {
+        List<Order> orders = orderService.getOrdersByUserId(userId);
+        return ResponseEntity.ok(new ApiResponse<>(true, "获取用户订单成功", orders));
+    }
+
+    /*
+     扩展功能2：多条件筛选订单
+     */
+    @GetMapping("/filter")
+    public ResponseEntity<ApiResponse<List<Order>>> filterOrders(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Date startDate,
+            @RequestParam(required = false) Date endDate,
+            @RequestParam(required = false) Double minAmount,
+            @RequestParam(required = false) Double maxAmount) {
+
+        List<Order> filtered = orderService.filterOrders(status, startDate, endDate, minAmount, maxAmount);
+        return ResponseEntity.ok(new ApiResponse<>(true, "筛选订单成功", filtered));
+    }
+
+    /*
+     扩展功能3：分页+排序
+     */
+    @GetMapping("/paged")
+    public ResponseEntity<ApiResponse<List<Order>>> getOrdersWithPaginationAndSorting(
+            @RequestParam int page,
+            @RequestParam int size,
+            @RequestParam(defaultValue = "orderDate") String sortBy,
+            @RequestParam(defaultValue = "asc") String sortOrder) {
+
+        List<Order> orders = orderService.getOrdersWithPaginationAndSorting(page, size, sortBy, sortOrder);
+        return ResponseEntity.ok(new ApiResponse<>(true, "分页获取订单成功", orders));
+    }
+
 }
