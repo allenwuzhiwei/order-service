@@ -6,8 +6,8 @@ import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 
-/**
- * OrderService 接口 - 订单模块业务逻辑接口定义
+/*
+ OrderService 接口 - 订单模块业务逻辑接口定义
  */
 public interface OrderService {
 
@@ -45,6 +45,14 @@ public interface OrderService {
      @return 是否删除成功
      */
     boolean deleteOrder(Long orderId);
+
+    // 扩展功能
+    /*
+     扩展功能1：根据用户 ID 查询该用户的所有订单
+     @param userId 用户 ID
+     @return 用户对应的订单列表
+     */
+    List<Order> getOrdersByUserId(Long userId);
 
 
 }
