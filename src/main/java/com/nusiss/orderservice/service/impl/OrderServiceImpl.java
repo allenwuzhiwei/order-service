@@ -77,4 +77,44 @@ public class OrderServiceImpl implements OrderService {
         return orderRepository.findByUserId(userId);
     }
 
+    /*
+     扩展功能2：多条件筛选订单（如状态、时间范围、金额范围）
+     */
+    @Override
+    public List<Order> filterOrders(String status, Date startDate, Date endDate, Double minAmount, Double maxAmount) {
+        List<Order> all = orderRepository.findAll();
+        List<Order> filtered = new ArrayList<>();
+
+        // 将 java.util.Date 转换为 java.time.LocalDateTime
+        LocalDateTime startDateTime = (startDate != null) ? startDate.toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime() : null;
+        LocalDateTime endDateTime = (endDate != null) ? endDate.toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime() : null;
+
+
+        for (Order order : all) {
+            boolean match = true;
+
+            if (status != null && !status.equals(order.getOrderStatus())) {
+                match = false;
+            }
+            if (startDate != null && order.getOrderDate().isBefore(startDateTime)) {
+                match = false;
+            }
+            if (endDate != null && order.getOrderDate().isAfter(endDateTime)) {
+                match = false;
+            }
+            if (minAmount != null && order.getTotalAmount() < minAmount) {
+                match = false;
+            }
+            if (maxAmount != null && order.getTotalAmount() > maxAmount) {
+                match = false;
+            }
+
+            if (match) {
+                filtered.add(order);
+            }
+        }
+
+        return filtered;
+    }
+
 }
