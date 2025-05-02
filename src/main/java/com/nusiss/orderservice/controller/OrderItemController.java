@@ -47,4 +47,25 @@ public class OrderItemController {
         boolean success = orderItemService.deleteOrderItem(itemId);
         return ResponseEntity.ok(new ApiResponse<>(success, success ? "删除成功" : "删除失败", success));
     }
+
+    // 扩展功能 1：获取订单的总金额
+    @GetMapping("/total/{orderId}")
+    public ResponseEntity<ApiResponse<Double>> calculateTotal(@PathVariable Long orderId) {
+        Double total = orderItemService.calculateTotalAmountByOrderId(orderId);
+        return ResponseEntity.ok(new ApiResponse<>(true, "计算成功", total));
+    }
+
+    // 扩展功能 2：批量添加订单项
+    @PostMapping("/batch")
+    public ResponseEntity<ApiResponse<List<OrderItem>>> addBatch(@RequestBody List<OrderItem> items) {
+        List<OrderItem> saved = orderItemService.addOrderItemsInBatch(items);
+        return ResponseEntity.ok(new ApiResponse<>(true, "批量添加成功", saved));
+    }
+
+    // 扩展功能 3：批量删除订单项
+    @DeleteMapping("/batch")
+    public ResponseEntity<ApiResponse<Boolean>> deleteBatch(@RequestBody List<Long> itemIds) {
+        boolean success = orderItemService.deleteOrderItemsInBatch(itemIds);
+        return ResponseEntity.ok(new ApiResponse<>(success, success ? "批量删除成功" : "批量删除失败", success));
+    }
 }
