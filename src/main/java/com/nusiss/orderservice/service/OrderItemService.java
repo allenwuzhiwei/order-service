@@ -41,4 +41,27 @@ public interface OrderItemService {
      */
     boolean deleteOrderItem(Long itemId);
 
+
+    // 扩展功能
+
+    /*
+     获取某一订单的所有商品总金额（汇总字段）
+     @param orderId 订单ID
+     @return 该订单所有商品项的金额汇总
+     */
+    Double calculateTotalAmountByOrderId(Long orderId);
+
+    /*
+     批量添加订单项
+     @param items 要添加的订单项列表
+     @return 添加成功后的订单项列表
+     */
+    List<OrderItem> addOrderItemsInBatch(List<OrderItem> items);
+
+    /*
+     批量删除订单项
+     @param itemIds 要删除的订单项ID列表
+     @return 是否全部删除成功
+     */
+    boolean deleteOrderItemsInBatch(List<Long> itemIds);
 }
