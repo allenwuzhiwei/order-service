@@ -1,6 +1,5 @@
 package com.nusiss.orderservice.service.impl;
 
-public class OrderItemServiceImpl {
 import com.nusiss.orderservice.dao.OrderItemRepository;
 import com.nusiss.orderservice.entity.OrderItem;
 import com.nusiss.orderservice.service.OrderItemService;
@@ -48,5 +47,30 @@ public class OrderItemServiceImpl implements OrderItemService {
             return true;
         }
         return false;
+    }
+
+    // 扩展功能：获取某订单下所有商品的总金额
+    @Override
+    public Double calculateTotalAmountByOrderId(Long orderId) {
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        return items.stream().mapToDouble(OrderItem::getSubtotalAmount).sum();
+    }
+
+    // 扩展功能：批量添加
+    @Override
+    public List<OrderItem> addOrderItemsInBatch(List<OrderItem> items) {
+        return orderItemRepository.saveAll(items);
+    }
+
+    // 扩展功能：批量删除
+    @Override
+    public boolean deleteOrderItemsInBatch(List<Long> itemIds) {
+        try {
+            orderItemRepository.deleteAllById(itemIds);
+            return true; // 删除成功
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false; // 删除失败
+        }
     }
 }
