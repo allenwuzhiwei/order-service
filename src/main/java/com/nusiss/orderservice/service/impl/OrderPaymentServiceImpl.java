@@ -1,6 +1,5 @@
 package com.nusiss.orderservice.service.impl;
 
-public class OrderPaymentServiceImpl {
 import com.nusiss.orderservice.dao.OrderPaymentRepository;
 import com.nusiss.orderservice.entity.OrderPayment;
 import com.nusiss.orderservice.service.OrderPaymentService;
