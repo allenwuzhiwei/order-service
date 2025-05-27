@@ -1,5 +1,7 @@
 package com.nusiss.orderservice.service;
 
+import com.nusiss.orderservice.dto.CreateOrderFromCartRequest;
+import com.nusiss.orderservice.dto.DirectOrderRequest;
 import com.nusiss.orderservice.entity.Order;
 
 import java.util.Date;
@@ -13,11 +15,24 @@ public interface OrderService {
 
     //基础功能
     /*
-     创建订单
+     已废用，创建订单
      @param order 订单对象
      @return 创建成功后的订单
      */
     Order createOrder(Order order);
+    //Order createOrder(Order order);
+
+    /*
+     已废用，联动失败的接口，从购物车中拉取商品项并创建订单（不扣减库存，仅生成订单）
+     @param request 请求体，包括 userId、地址、支付方式
+     @return 创建成功的订单对象
+     */
+    //Order createOrderWithCartItems(CreateOrderRequest request);
+
+    /*
+    直接通过商品项创建订单，通过Feign进行联动接口
+    */
+    Order createDirectOrder(DirectOrderRequest request);
 
     /*
      根据 ID 查询订单详情
@@ -40,7 +55,7 @@ public interface OrderService {
     boolean updateOrder(Order order);
 
     /*
-     删除订单
+     原始物理删除订单方法，只删除相关信息，保留以备使用
      @param orderId 要删除的订单主键 ID
      @return 是否删除成功
      */
