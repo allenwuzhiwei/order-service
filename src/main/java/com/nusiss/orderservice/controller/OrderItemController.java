@@ -1,12 +1,13 @@
 package com.nusiss.orderservice.controller;
 
-import com.nusiss.orderservice.config.ApiResponse;
+import com.nusiss.commonservice.config.ApiResponse;
 import com.nusiss.orderservice.entity.OrderItem;
 import com.nusiss.orderservice.service.OrderItemService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /*
@@ -20,12 +21,13 @@ public class OrderItemController {
     @Autowired
     private OrderItemService orderItemService;
 
-    // 创建订单项
-    @PostMapping
-    public ResponseEntity<ApiResponse<OrderItem>> createItem(@RequestBody OrderItem item) {
-        OrderItem created = orderItemService.addOrderItem(item);
-        return ResponseEntity.ok(new ApiResponse<>(true, "订单项创建成功", created));
-    }
+    /*创建订单项,已弃用*/
+//    @PostMapping
+//    public ResponseEntity<ApiResponse<OrderItem>> createItem(@RequestBody OrderItem item) {
+//        OrderItem created = orderItemService.addOrderItem(item);
+//        return ResponseEntity.ok(new ApiResponse<>(true, "订单项创建成功", created));
+//    }
+
 
     // 查询某订单下的所有订单项
     @GetMapping("/order/{orderId}")
@@ -50,8 +52,8 @@ public class OrderItemController {
 
     // 扩展功能 1：获取订单的总金额
     @GetMapping("/total/{orderId}")
-    public ResponseEntity<ApiResponse<Double>> calculateTotal(@PathVariable Long orderId) {
-        Double total = orderItemService.calculateTotalAmountByOrderId(orderId);
+    public ResponseEntity<ApiResponse<BigDecimal>> calculateTotal(@PathVariable Long orderId) {
+        BigDecimal total = orderItemService.calculateTotalAmountByOrderId(orderId);
         return ResponseEntity.ok(new ApiResponse<>(true, "计算成功", total));
     }
 
