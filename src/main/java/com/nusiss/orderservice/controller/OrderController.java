@@ -43,6 +43,18 @@ public class OrderController {
     }
 
     /*
+     从购物车创建订单（校验库存 + 创建订单 + 扣库存 + 清空购物车）
+     @param request 请求体，包括 userId 和 shippingAddress
+     @return 创建好的订单信息
+     */
+    @PostMapping("/fromCart")
+    public ResponseEntity<ApiResponse<Order>> createOrderFromCart(@RequestBody CreateOrderFromCartRequest request) {
+        Order createdOrder = orderService.createOrderFromCart(request);
+        return ResponseEntity.ok(ApiResponse.success(createdOrder));
+    }
+
+
+    /*
      获取所有订单
      */
     @GetMapping
