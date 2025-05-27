@@ -19,7 +19,6 @@ public interface OrderService {
      @param order 订单对象
      @return 创建成功后的订单
      */
-    Order createOrder(Order order);
     //Order createOrder(Order order);
 
     /*
@@ -33,6 +32,11 @@ public interface OrderService {
     直接通过商品项创建订单，通过Feign进行联动接口
     */
     Order createDirectOrder(DirectOrderRequest request);
+
+    /*
+    获取购物车项（通过 Feign） + 校验库存 + 创建订单（状态为 UNPAID） + 调用支付接口，判断是否支付成功（通过 Feign） + 更新订单为 PAID + 创建订单项 + 扣减库存（通过 Feign） + 清空购物车项（通过 Feign）
+    */
+    Order createOrderFromCart(CreateOrderFromCartRequest request);
 
     /*
      根据 ID 查询订单详情
