@@ -3,6 +3,7 @@ package com.nusiss.orderservice.entity;
 import jakarta.persistence.*;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /*
@@ -22,7 +23,7 @@ public class Order {
 
     private String orderStatus; // 订单状态，例如：PENDING、PAID、SHIPPED 等
 
-    private Double totalAmount; // 订单总金额
+    private BigDecimal totalAmount; // 订单总金额
 
     private String paymentStatus; // 支付状态，例如：UNPAID、PAID
 
