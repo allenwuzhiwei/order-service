@@ -82,7 +82,7 @@ public class OrderServiceImpl implements OrderService {
         order.setCreateDatetime(LocalDateTime.now());
         order.setCreateUser("system");
 
-        order = orderRepository.save(order); // 此时 orderId 已生成 ✅
+        order = orderRepository.save(order); // 此时 orderId 已生成
 
         // ===== 4. 调用 payment-service 发起支付（使用真实 orderId）=====
         PaymentRequest paymentRequest = new PaymentRequest();
