@@ -132,6 +132,116 @@ public class OrderServiceImpl implements OrderService {
         return order;
     }
 
+
+    @Override
+    public Order createOrderFromCart(CreateOrderFromCartRequest request) {
+        Long userId = request.getUserId();
+        String shippingAddress = request.getShippingAddress();
+
+        // 1. 获取购物车项（通过 shoppingcart-service）
+        ApiResponse<List<CartItem>> cartRes = shoppingCartFeignClient.getCartItems(userId);
+        if (!cartRes.isSuccess() || cartRes.getData() == null || cartRes.getData().isEmpty()) {
+            throw new RuntimeException("购物车为空，无法下单");
+        }
+
+        List<CartItem> cartItems = cartRes.getData();
+
+        // 2. 校验所有商品库存是否足够
+        for (CartItem item : cartItems) {
+            ApiResponse<Integer> stockRes = inventoryFeignClient.getInventoryQuantity(item.getProductId());
+            if (!stockRes.isSuccess() || stockRes.getData() == null) {
+                throw new RuntimeException("无法获取商品库存，商品ID: " + item.getProductId());
+            }
+            if (stockRes.getData() < item.getQuantity()) {
+                throw new RuntimeException("商品库存不足，商品ID: " + item.getProductId());
+            }
+        }
+
+        // 3. 获取商品价格并计算总金额（通过 product-service）
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        Map<Long, Product> productMap = new HashMap<>();
+        for (CartItem item : cartItems) {
+            ApiResponse<Product> productRes = productFeignClient.getProductById(item.getProductId());
+            if (!productRes.isSuccess() || productRes.getData() == null) {
+                throw new RuntimeException("获取商品信息失败，商品ID: " + item.getProductId());
+            }
+            Product product = productRes.getData();
+            productMap.put(product.getId(), product);
+
+            BigDecimal itemTotal = product.getPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
+            totalAmount = totalAmount.add(itemTotal);
+        }
+
+        // 4. 创建订单（初始状态 UNPAID）
+        Order order = new Order();
+        order.setUserId(userId);
+        order.setOrderStatus("CREATED");
+        order.setPaymentStatus("UNPAID");
+        order.setTotalAmount(totalAmount);
+        order.setShippingAddress(shippingAddress);
+        order.setCreateDatetime(LocalDateTime.now());
+        order.setCreateUser("system");
+
+        order = orderRepository.save(order); // 获取 orderId
+
+        // 5. 发起支付（调用 payment-service）
+        PaymentRequest paymentRequest = new PaymentRequest();
+        paymentRequest.setOrderId(order.getOrderId());
+        paymentRequest.setUserId(userId);
+        paymentRequest.setAmount(totalAmount);
+        paymentRequest.setCurrency("CNY");
+        paymentRequest.setMethod("WeChat"); // 默认写死 WeChat，后续可参数化
+
+        ApiResponse<Payment> paymentRes = paymentFeignClient.processPayment(paymentRequest);
+        if (!paymentRes.isSuccess() || paymentRes.getData() == null ||
+                !"PAID".equalsIgnoreCase(paymentRes.getData().getPaymentStatus())) {
+            throw new RuntimeException("支付失败，订单未完成");
+        }
+
+        // 6. 更新订单为已支付
+        order.setPaymentStatus("PAID");
+        order.setUpdateUser("system");
+        order.setUpdateDatetime(LocalDateTime.now());
+        orderRepository.save(order);
+
+        // 7. 创建订单项
+        for (CartItem item : cartItems) {
+            Product product = productMap.get(item.getProductId());
+
+            OrderItem orderItem = new OrderItem();
+            orderItem.setOrderId(order.getOrderId());
+            orderItem.setProductId(product.getId());
+            orderItem.setProductName(product.getName());
+            orderItem.setQuantity(item.getQuantity());
+            orderItem.setProductPrice(product.getPrice());
+            orderItem.setSubtotalAmount(product.getPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
+            orderItem.setCreateDatetime(LocalDateTime.now());
+            orderItem.setCreateUser("system");
+
+            orderItemRepository.save(orderItem);
+        }
+
+        // 8. 扣减库存
+        for (CartItem item : cartItems) {
+            InventoryChangeRequest change = new InventoryChangeRequest();
+            change.setProductId(item.getProductId());
+            change.setQuantity(item.getQuantity());
+            change.setOperator("order-service");
+
+            ApiResponse<Boolean> deductRes = inventoryFeignClient.deductInventory(change);
+            if (!deductRes.isSuccess() || Boolean.FALSE.equals(deductRes.getData())) {
+                throw new RuntimeException("库存扣减失败，商品ID: " + item.getProductId());
+            }
+        }
+
+        // 9. 清空购物车（调用购物车服务）
+        shoppingCartFeignClient.clearCart(userId);
+
+        return order;
+    }
+
+
+
     /*
      废用的方法实现，创建订单
      */
