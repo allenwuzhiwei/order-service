@@ -3,6 +3,7 @@ package com.nusiss.orderservice.entity;
 import jakarta.persistence.*;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /*
@@ -24,12 +25,12 @@ public class OrderItem {
 
     private String productName; // 商品名称
 
-    private Double productPrice; // 商品单价
+    private BigDecimal productPrice; // 商品单价
 
     private Integer quantity; // 商品数量
 
     @Column(insertable = false, updatable = false)
-    private Double subtotalAmount; // 小计金额 = 单价 × 数量（可由后端自动计算）
+    private BigDecimal subtotalAmount; // 小计金额 = 单价 × 数量（可由后端自动计算）
 
     private String createUser; // 创建人
     private String updateUser; // 更新人
