@@ -6,6 +6,7 @@ import com.nusiss.orderservice.service.OrderItemService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
@@ -15,12 +16,13 @@ public class OrderItemServiceImpl implements OrderItemService {
     @Autowired
     private OrderItemRepository orderItemRepository;
 
-    // 添加商品项至订单
-    @Override
-    public OrderItem addOrderItem(OrderItem item) {
-        item.setSubtotalAmount(item.getProductPrice() * item.getQuantity());
-        return orderItemRepository.save(item);
-    }
+
+    /* 添加商品项至订单，暂时弃用*/
+//    @Override
+//    public OrderItem addOrderItem(OrderItem item) {
+//        item.setSubtotalAmount(item.getProductPrice() * item.getQuantity());
+//        return orderItemRepository.save(item);
+//    }
 
     // 根据 orderId 获取某个订单下所有商品项
     @Override
@@ -51,10 +53,13 @@ public class OrderItemServiceImpl implements OrderItemService {
 
     // 扩展功能：获取某订单下所有商品的总金额
     @Override
-    public Double calculateTotalAmountByOrderId(Long orderId) {
+    public BigDecimal calculateTotalAmountByOrderId(Long orderId) {
         List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        return items.stream().mapToDouble(OrderItem::getSubtotalAmount).sum();
+        return items.stream()
+                .map(OrderItem::getSubtotalAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
+
 
     // 扩展功能：批量添加
     @Override
