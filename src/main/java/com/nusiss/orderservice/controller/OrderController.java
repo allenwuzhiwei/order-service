@@ -1,6 +1,8 @@
 package com.nusiss.orderservice.controller;
 
-import com.nusiss.orderservice.config.ApiResponse;
+import com.nusiss.commonservice.config.ApiResponse;
+import com.nusiss.orderservice.dto.CreateOrderFromCartRequest;
+import com.nusiss.orderservice.dto.DirectOrderRequest;
 import com.nusiss.orderservice.entity.Order;
 import com.nusiss.orderservice.service.OrderService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,12 +25,21 @@ public class OrderController {
     private OrderService orderService;
 
     /*
-     创建订单
+     已废用--创建订单
      */
-    @PostMapping
-    public ResponseEntity<ApiResponse<Order>> createOrder(@RequestBody Order order) {
-        Order created = orderService.createOrder(order);
-        return ResponseEntity.status(201).body(new ApiResponse<>(true, "订单创建成功", created));
+//    @PostMapping
+//    public ResponseEntity<ApiResponse<Order>> createOrder(@RequestBody Order order) {
+//        Order created = orderService.createOrder(order);
+//        return ResponseEntity.status(201).body(new ApiResponse<>(true, "订单创建成功", created));
+//    }
+
+    /*
+    通过Feign进行联动接口：用于前端调用【创建订单 + 获取商品详情 + 验证库存 + 选择支付方式（支付成功后）（预留） + 扣减商品库存】这一整套流程。
+    */
+    @PostMapping("/direct")
+    public ResponseEntity<ApiResponse<Order>> createDirectOrder(@RequestBody DirectOrderRequest request) {
+        Order createdOrder = orderService.createDirectOrder(request);
+        return ResponseEntity.ok(ApiResponse.success(createdOrder));
     }
 
     /*
