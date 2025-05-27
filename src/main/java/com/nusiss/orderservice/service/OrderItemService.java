@@ -2,6 +2,7 @@ package com.nusiss.orderservice.service;
 
 import com.nusiss.orderservice.entity.OrderItem;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,11 +14,12 @@ public interface OrderItemService {
     // 基础功能
 
     /*
+     暂时弃用
      添加一个商品项到订单
      @param orderItem 要添加的订单项对象
      @return 创建成功后的订单项
      */
-    OrderItem addOrderItem(OrderItem orderItem);
+    //OrderItem addOrderItem(OrderItem orderItem);
 
     /*
      获取指定订单的所有订单项
@@ -49,7 +51,7 @@ public interface OrderItemService {
      @param orderId 订单ID
      @return 该订单所有商品项的金额汇总
      */
-    Double calculateTotalAmountByOrderId(Long orderId);
+    BigDecimal calculateTotalAmountByOrderId(Long orderId);
 
     /*
      批量添加订单项
