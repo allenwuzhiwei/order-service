@@ -11,8 +11,8 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
 
-/**
- * OrderServiceImpl 实现类 - 提供订单模块的业务逻辑实现
+/*
+ OrderServiceImpl 实现类 - 提供订单模块的业务逻辑实现
  */
 @Service
 public class OrderServiceImpl implements OrderService {
@@ -28,6 +28,13 @@ public class OrderServiceImpl implements OrderService {
         return orderRepository.save(order);
     }
 
+    /*
+     废用的方法实现，创建订单
+     */
+//    @Override
+//    public Order createOrder(Order order) {
+//        return orderRepository.save(order);
+//    }
     /*
      根据订单 ID 查询
      */
@@ -102,10 +109,12 @@ public class OrderServiceImpl implements OrderService {
             if (endDate != null && order.getOrderDate().isAfter(endDateTime)) {
                 match = false;
             }
-            if (minAmount != null && order.getTotalAmount() < minAmount) {
+            // 修改 filterOrders 方法中的 minAmount 和 maxAmount 比较逻辑
+
+            if (minAmount != null && order.getTotalAmount().compareTo(BigDecimal.valueOf(minAmount)) < 0) {
                 match = false;
             }
-            if (maxAmount != null && order.getTotalAmount() > maxAmount) {
+            if (maxAmount != null && order.getTotalAmount().compareTo(BigDecimal.valueOf(maxAmount)) > 0) {
                 match = false;
             }
 
