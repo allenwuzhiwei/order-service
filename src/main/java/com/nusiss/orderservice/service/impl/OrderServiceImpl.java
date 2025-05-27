@@ -1,12 +1,25 @@
 package com.nusiss.orderservice.service.impl;
 
+import com.nusiss.commonservice.entity.*;
+import com.nusiss.orderservice.dto.CreateOrderFromCartRequest;
+import com.nusiss.orderservice.dto.DirectOrderRequest;
 import com.nusiss.orderservice.entity.Order;
 import com.nusiss.orderservice.dao.OrderRepository;
+import com.nusiss.orderservice.entity.OrderItem;
 import com.nusiss.orderservice.service.OrderService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 
+import com.nusiss.orderservice.dao.OrderItemRepository;
+import com.nusiss.commonservice.config.ApiResponse;
+import com.nusiss.commonservice.feign.ProductFeignClient;
+import com.nusiss.commonservice.feign.InventoryFeignClient;
+import com.nusiss.commonservice.feign.PaymentFeignClient;
+import com.nusiss.commonservice.feign.ShoppingCartFeignClient;
+
+
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
@@ -18,14 +31,105 @@ import java.util.*;
 public class OrderServiceImpl implements OrderService {
 
     @Autowired
+    private ProductFeignClient productFeignClient;
+
+    @Autowired
+    private InventoryFeignClient inventoryFeignClient;
+
+    @Autowired
     private OrderRepository orderRepository;
 
-    /*
-     创建订单
-     */
+    @Autowired
+    private OrderItemRepository orderItemRepository;
+
+    @Autowired
+    private PaymentFeignClient paymentFeignClient;
+
+    @Autowired
+    private ShoppingCartFeignClient shoppingCartFeignClient;
+
     @Override
-    public Order createOrder(Order order) {
-        return orderRepository.save(order);
+    public Order createDirectOrder(DirectOrderRequest request) {
+        Long productId = request.getProductId();
+        Integer quantity = request.getQuantity();
+
+        // ===== 1. 获取商品详情（product-service）=====
+        ApiResponse<Product> productRes = productFeignClient.getProductById(productId);
+        if (!productRes.isSuccess() || productRes.getData() == null) {
+            throw new RuntimeException("商品不存在或无法获取商品信息");
+        }
+        Product product = productRes.getData();
+
+        // ===== 2. 获取库存信息（inventory-service）=====
+        ApiResponse<Integer> stockRes = inventoryFeignClient.getInventoryQuantity(productId);
+        if (!stockRes.isSuccess() || stockRes.getData() == null) {
+            throw new RuntimeException("无法获取库存信息");
+        }
+
+        Integer availableStock = stockRes.getData();
+        if (availableStock < quantity) {
+            throw new RuntimeException("库存不足，无法下单");
+        }
+
+        // ===== 3. 先创建订单（此时支付状态为 UNPAID）=====
+        Order order = new Order();
+        order.setUserId(request.getUserId());
+        order.setOrderStatus("CREATED");
+        order.setPaymentStatus("UNPAID");
+        BigDecimal totalAmount = product.getPrice().multiply(BigDecimal.valueOf(quantity));
+        order.setTotalAmount(totalAmount);
+        order.setShippingAddress(request.getShippingAddress());
+        order.setCreateDatetime(LocalDateTime.now());
+        order.setCreateUser("system");
+
+        order = orderRepository.save(order); // 此时 orderId 已生成 ✅
+
+        // ===== 4. 调用 payment-service 发起支付（使用真实 orderId）=====
+        PaymentRequest paymentRequest = new PaymentRequest();
+        paymentRequest.setOrderId(order.getOrderId());
+        paymentRequest.setUserId(request.getUserId());
+        paymentRequest.setAmount(totalAmount);
+        paymentRequest.setCurrency("CNY");
+        paymentRequest.setMethod("WeChat");
+
+        ApiResponse<Payment> paymentRes = paymentFeignClient.processPayment(paymentRequest);
+
+        if (!paymentRes.isSuccess() || paymentRes.getData() == null ||
+                !"PAID".equalsIgnoreCase(paymentRes.getData().getPaymentStatus())) {
+            throw new RuntimeException("支付失败，订单未创建");
+        }
+
+        // ===== 5. 更新订单为已支付状态 =====
+        order.setPaymentStatus("PAID");
+        order.setUpdateUser("system");
+        order.setUpdateDatetime(LocalDateTime.now());
+        orderRepository.save(order);
+
+        // ===== 6. 扣减库存（inventory-service）=====
+        InventoryChangeRequest changeRequest = new InventoryChangeRequest();
+        changeRequest.setProductId(productId);
+        changeRequest.setQuantity(quantity);
+        changeRequest.setOperator("order-service");
+
+        ApiResponse<Boolean> deductRes = inventoryFeignClient.deductInventory(changeRequest);
+        if (!deductRes.isSuccess() || Boolean.FALSE.equals(deductRes.getData())) {
+            throw new RuntimeException("扣减库存失败");
+        }
+
+        // ===== 7. 创建订单项 =====
+        OrderItem item = new OrderItem();
+        item.setOrderId(order.getOrderId());
+        item.setProductId(product.getId());
+        item.setProductName(product.getName());
+        item.setQuantity(quantity);
+        item.setProductPrice(product.getPrice());
+        item.setSubtotalAmount(totalAmount);
+        item.setCreateDatetime(LocalDateTime.now());
+        item.setCreateUser("system");
+
+        orderItemRepository.save(item);
+
+        return order;
     }
 
     /*
