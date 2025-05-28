@@ -18,7 +18,6 @@ import com.nusiss.commonservice.feign.InventoryFeignClient;
 import com.nusiss.commonservice.feign.PaymentFeignClient;
 import com.nusiss.commonservice.feign.ShoppingCartFeignClient;
 
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -29,6 +28,8 @@ import java.util.*;
  */
 @Service
 public class OrderServiceImpl implements OrderService {
+
+    private static final String SYSTEM_USER = "system"; // 🔧 提取常量避免硬编码重复
 
     @Autowired
     private ProductFeignClient productFeignClient;
@@ -80,7 +81,7 @@ public class OrderServiceImpl implements OrderService {
         order.setTotalAmount(totalAmount);
         order.setShippingAddress(request.getShippingAddress());
         order.setCreateDatetime(LocalDateTime.now());
-        order.setCreateUser("system");
+        order.setCreateUser(SYSTEM_USER);
 
         order = orderRepository.save(order); // 此时 orderId 已生成
 
@@ -101,7 +102,7 @@ public class OrderServiceImpl implements OrderService {
 
         // ===== 5. 更新订单为已支付状态 =====
         order.setPaymentStatus("PAID");
-        order.setUpdateUser("system");
+        order.setUpdateUser(SYSTEM_USER);
         order.setUpdateDatetime(LocalDateTime.now());
         orderRepository.save(order);
 
@@ -125,28 +126,41 @@ public class OrderServiceImpl implements OrderService {
         item.setProductPrice(product.getPrice());
         item.setSubtotalAmount(totalAmount);
         item.setCreateDatetime(LocalDateTime.now());
-        item.setCreateUser("system");
+        item.setCreateUser(SYSTEM_USER);
 
         orderItemRepository.save(item);
 
         return order;
     }
 
-
     @Override
     public Order createOrderFromCart(CreateOrderFromCartRequest request) {
         Long userId = request.getUserId();
         String shippingAddress = request.getShippingAddress();
 
-        // 1. 获取购物车项（通过 shoppingcart-service）
+        List<CartItem> cartItems = getValidatedCartItems(userId);
+        validateStock(cartItems);
+        Map<Long, Product> productMap = new HashMap<>();
+        BigDecimal totalAmount = calculateTotalAmount(cartItems, productMap);
+
+        Order order = createAndSaveOrder(userId, shippingAddress, totalAmount);
+        processPayment(order, userId, totalAmount);
+        createOrderItems(order, cartItems, productMap);
+        deductInventory(cartItems);
+
+        shoppingCartFeignClient.clearCart(userId);
+        return order;
+    }
+
+    private List<CartItem> getValidatedCartItems(Long userId) {
         ApiResponse<List<CartItem>> cartRes = shoppingCartFeignClient.getCartItems(userId);
         if (!cartRes.isSuccess() || cartRes.getData() == null || cartRes.getData().isEmpty()) {
             throw new RuntimeException("购物车为空，无法下单");
         }
+        return cartRes.getData();
+    }
 
-        List<CartItem> cartItems = cartRes.getData();
-
-        // 2. 校验所有商品库存是否足够
+    private void validateStock(List<CartItem> cartItems) {
         for (CartItem item : cartItems) {
             ApiResponse<Integer> stockRes = inventoryFeignClient.getInventoryQuantity(item.getProductId());
             if (!stockRes.isSuccess() || stockRes.getData() == null) {
@@ -156,10 +170,10 @@ public class OrderServiceImpl implements OrderService {
                 throw new RuntimeException("商品库存不足，商品ID: " + item.getProductId());
             }
         }
+    }
 
-        // 3. 获取商品价格并计算总金额（通过 product-service）
+    private BigDecimal calculateTotalAmount(List<CartItem> cartItems, Map<Long, Product> productMap) {
         BigDecimal totalAmount = BigDecimal.ZERO;
-        Map<Long, Product> productMap = new HashMap<>();
         for (CartItem item : cartItems) {
             ApiResponse<Product> productRes = productFeignClient.getProductById(item.getProductId());
             if (!productRes.isSuccess() || productRes.getData() == null) {
@@ -167,12 +181,12 @@ public class OrderServiceImpl implements OrderService {
             }
             Product product = productRes.getData();
             productMap.put(product.getId(), product);
-
-            BigDecimal itemTotal = product.getPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
-            totalAmount = totalAmount.add(itemTotal);
+            totalAmount = totalAmount.add(product.getPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
         }
+        return totalAmount;
+    }
 
-        // 4. 创建订单（初始状态 UNPAID）
+    private Order createAndSaveOrder(Long userId, String shippingAddress, BigDecimal totalAmount) {
         Order order = new Order();
         order.setUserId(userId);
         order.setOrderStatus("CREATED");
@@ -180,17 +194,17 @@ public class OrderServiceImpl implements OrderService {
         order.setTotalAmount(totalAmount);
         order.setShippingAddress(shippingAddress);
         order.setCreateDatetime(LocalDateTime.now());
-        order.setCreateUser("system");
+        order.setCreateUser(SYSTEM_USER);
+        return orderRepository.save(order);
+    }
 
-        order = orderRepository.save(order); // 获取 orderId
-
-        // 5. 发起支付（调用 payment-service）
+    private void processPayment(Order order, Long userId, BigDecimal totalAmount) {
         PaymentRequest paymentRequest = new PaymentRequest();
         paymentRequest.setOrderId(order.getOrderId());
         paymentRequest.setUserId(userId);
         paymentRequest.setAmount(totalAmount);
         paymentRequest.setCurrency("CNY");
-        paymentRequest.setMethod("WeChat"); // 默认写死 WeChat，后续可参数化
+        paymentRequest.setMethod("WeChat");
 
         ApiResponse<Payment> paymentRes = paymentFeignClient.processPayment(paymentRequest);
         if (!paymentRes.isSuccess() || paymentRes.getData() == null ||
@@ -198,13 +212,13 @@ public class OrderServiceImpl implements OrderService {
             throw new RuntimeException("支付失败，订单未完成");
         }
 
-        // 6. 更新订单为已支付
         order.setPaymentStatus("PAID");
-        order.setUpdateUser("system");
+        order.setUpdateUser(SYSTEM_USER);
         order.setUpdateDatetime(LocalDateTime.now());
         orderRepository.save(order);
+    }
 
-        // 7. 创建订单项
+    private void createOrderItems(Order order, List<CartItem> cartItems, Map<Long, Product> productMap) {
         for (CartItem item : cartItems) {
             Product product = productMap.get(item.getProductId());
 
@@ -216,12 +230,13 @@ public class OrderServiceImpl implements OrderService {
             orderItem.setProductPrice(product.getPrice());
             orderItem.setSubtotalAmount(product.getPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
             orderItem.setCreateDatetime(LocalDateTime.now());
-            orderItem.setCreateUser("system");
+            orderItem.setCreateUser(SYSTEM_USER);
 
             orderItemRepository.save(orderItem);
         }
+    }
 
-        // 8. 扣减库存
+    private void deductInventory(List<CartItem> cartItems) {
         for (CartItem item : cartItems) {
             InventoryChangeRequest change = new InventoryChangeRequest();
             change.setProductId(item.getProductId());
@@ -233,41 +248,19 @@ public class OrderServiceImpl implements OrderService {
                 throw new RuntimeException("库存扣减失败，商品ID: " + item.getProductId());
             }
         }
-
-        // 9. 清空购物车（调用购物车服务）
-        shoppingCartFeignClient.clearCart(userId);
-
-        return order;
     }
 
 
-
-    /*
-     废用的方法实现，创建订单
-     */
-//    @Override
-//    public Order createOrder(Order order) {
-//        return orderRepository.save(order);
-//    }
-    /*
-     根据订单 ID 查询
-     */
     @Override
     public Optional<Order> getOrderById(Long orderId) {
         return orderRepository.findById(orderId);
     }
 
-    /*
-     查询所有订单
-     */
     @Override
     public List<Order> getAllOrders() {
         return orderRepository.findAll();
     }
 
-    /*
-     更新订单信息（如果存在该订单则更新）
-     */
     @Override
     public boolean updateOrder(Order order) {
         if (orderRepository.existsById(order.getOrderId())) {
@@ -277,9 +270,6 @@ public class OrderServiceImpl implements OrderService {
         return false;
     }
 
-    /*
-     删除订单
-     */
     @Override
     public boolean deleteOrder(Long orderId) {
         if (orderRepository.existsById(orderId)) {
@@ -289,27 +279,18 @@ public class OrderServiceImpl implements OrderService {
         return false;
     }
 
-
-    /*
-     扩展功能1：根据用户 ID 查询该用户的所有订单
-     */
     @Override
     public List<Order> getOrdersByUserId(Long userId) {
         return orderRepository.findByUserId(userId);
     }
 
-    /*
-     扩展功能2：多条件筛选订单（如状态、时间范围、金额范围）
-     */
     @Override
     public List<Order> filterOrders(String status, Date startDate, Date endDate, Double minAmount, Double maxAmount) {
         List<Order> all = orderRepository.findAll();
         List<Order> filtered = new ArrayList<>();
 
-        // 将 java.util.Date 转换为 java.time.LocalDateTime
         LocalDateTime startDateTime = (startDate != null) ? startDate.toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime() : null;
         LocalDateTime endDateTime = (endDate != null) ? endDate.toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime() : null;
-
 
         for (Order order : all) {
             boolean match = true;
@@ -323,8 +304,6 @@ public class OrderServiceImpl implements OrderService {
             if (endDate != null && order.getOrderDate().isAfter(endDateTime)) {
                 match = false;
             }
-            // 修改 filterOrders 方法中的 minAmount 和 maxAmount 比较逻辑
-
             if (minAmount != null && order.getTotalAmount().compareTo(BigDecimal.valueOf(minAmount)) < 0) {
                 match = false;
             }
@@ -340,9 +319,6 @@ public class OrderServiceImpl implements OrderService {
         return filtered;
     }
 
-    /*
-     扩展功能3：分页获取订单列表，并按指定字段排序
-     */
     @Override
     public List<Order> getOrdersWithPaginationAndSorting(int page, int size, String sortBy, String sortOrder) {
         Sort sort = sortOrder.equalsIgnoreCase("desc")
@@ -353,5 +329,4 @@ public class OrderServiceImpl implements OrderService {
         Page<Order> resultPage = orderRepository.findAll(pageable);
         return resultPage.getContent();
     }
-
 }
