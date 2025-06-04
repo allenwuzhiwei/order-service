@@ -10,7 +10,7 @@ import org.mockito.MockitoAnnotations;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Optional;
+
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -110,5 +110,42 @@ class OrderItemServiceImplTest {
 
         boolean result = orderItemService.deleteOrderItemsInBatch(List.of(1L, 2L));
         assertFalse(result);
+    }
+
+    /*
+     当用户没有关联任何订单商品时，返回空列表
+     */
+    @Test
+    void testGetProductIdsByUserId_WithNoData_ReturnsEmptyList() {
+        // Arrange
+        Long userId = 456L;
+
+        when(orderItemRepository.findProductIdsByUserId(userId)).thenReturn(List.of());
+
+        // Act
+        List<Long> result = orderItemService.getProductIdsByUserId(userId);
+
+        // Assert
+        assertNotNull(result);
+        assertTrue(result.isEmpty());
+        verify(orderItemRepository, times(1)).findProductIdsByUserId(userId);
+    }
+
+    /*
+     验证当 repository 返回 null 时是否安全处理为 null（当前实现直接返回 repository 结果）
+     */
+    @Test
+    void testGetProductIdsByUserId_WhenRepositoryReturnsNull_ShouldReturnNull() {
+        // Arrange
+        Long userId = 789L;
+
+        when(orderItemRepository.findProductIdsByUserId(userId)).thenReturn(null);
+
+        // Act
+        List<Long> result = orderItemService.getProductIdsByUserId(userId);
+
+        // Assert
+        assertNull(result);
+        verify(orderItemRepository, times(1)).findProductIdsByUserId(userId);
     }
 }
