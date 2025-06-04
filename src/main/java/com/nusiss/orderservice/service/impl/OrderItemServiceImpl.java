@@ -78,4 +78,11 @@ public class OrderItemServiceImpl implements OrderItemService {
             return false; // 删除失败
         }
     }
+
+    // 工具类功能，用于联动：根据用户ID获取所有商品ID
+    @Override
+    public List<Long> getProductIdsByUserId(Long userId) {
+        return orderItemRepository.findProductIdsByUserId(userId);
+    }
+
 }

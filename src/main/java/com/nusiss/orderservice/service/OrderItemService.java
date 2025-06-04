@@ -66,4 +66,13 @@ public interface OrderItemService {
      @return 是否全部删除成功
      */
     boolean deleteOrderItemsInBatch(List<Long> itemIds);
+
+    /*
+    工具方法：
+     获取指定用户下的所有订单项的productId列表
+     @param userId 用户ID
+     @return 对应用户下的所有订单项的productId列表
+     */
+    List<Long> getProductIdsByUserId(Long userId);
+
 }

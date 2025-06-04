@@ -70,4 +70,12 @@ public class OrderItemController {
         boolean success = orderItemService.deleteOrderItemsInBatch(itemIds);
         return ResponseEntity.ok(new ApiResponse<>(success, success ? "批量删除成功" : "批量删除失败", success));
     }
+
+    // 工具类功能 4：根据用户ID获取产品ID列表
+    @GetMapping("/user/{userId}/product-ids")
+    public List<Long> getProductIdsByUserId(@PathVariable Long userId) {
+        return orderItemService.getProductIdsByUserId(userId);
+    }
+
+
 }
