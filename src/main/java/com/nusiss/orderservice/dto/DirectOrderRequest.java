@@ -8,4 +8,5 @@ public class DirectOrderRequest {
     private Integer quantity;
     private String shippingAddress;
     private Long userId;
+    private String paymentMethod;
 }
