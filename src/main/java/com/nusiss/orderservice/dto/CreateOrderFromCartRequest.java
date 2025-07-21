@@ -9,4 +9,5 @@ import lombok.Data;
 public class CreateOrderFromCartRequest {
     private Long userId;
     private String shippingAddress;
+    private String paymentMethod;
 }
