@@ -40,7 +40,7 @@ The service integrates with other microservices via **Eureka** (service discover
 
 ---
 
-## Implemented Features 
+## Implemented Features
 ### 1️⃣ Order Module
 
 **Basic Functions**
@@ -52,8 +52,14 @@ The service integrates with other microservices via **Eureka** (service discover
 
 **Extended Features**
 - Retrieve all the orders of this user based on the user ID
-- Multi-condition order filtering (such as status, time range, amount range)
+- Multi-condition order filtering (e.g. status, time range, amount range)
 - Pagination and sorting of orders
+- Place order directly from product page, with inventory and payment service integration
+- Place order from shopping cart, automatically syncing cart items and clearing the cart after success
+- Support for multiple payment methods (e.g. `WeChat`, `PayNow`) via Factory Method Pattern
+- Inventory validation and deduction before order confirmation
+- Auto payment verification via `payment-service` before saving order
+
 
 ---
 
