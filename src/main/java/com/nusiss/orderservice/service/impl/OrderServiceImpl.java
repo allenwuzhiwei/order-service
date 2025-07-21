@@ -90,9 +90,26 @@ public class OrderServiceImpl implements OrderService {
         paymentRequest.setOrderId(order.getOrderId());
         paymentRequest.setUserId(request.getUserId());
         paymentRequest.setAmount(totalAmount);
-        paymentRequest.setCurrency("CNY");
-        paymentRequest.setMethod("WeChat");
 
+        // 从请求中获取支付方式
+        String method = request.getPaymentMethod();
+        paymentRequest.setMethod(method);
+
+        // 根据支付方式动态设置币种（Currency）
+        String currency;
+        switch (method) {
+            case "WeChat":
+            case "PayNow":
+            case "PayLah":
+            case "FaceRecognition":
+                currency = "SGD";
+                break;
+            default:
+                currency = "CNY"; // 默认币种
+        }
+        paymentRequest.setCurrency(currency);
+
+        // 发起远程调用
         ApiResponse<Payment> paymentRes = paymentFeignClient.processPayment(paymentRequest);
 
         if (!paymentRes.isSuccess() || paymentRes.getData() == null ||
@@ -137,6 +154,7 @@ public class OrderServiceImpl implements OrderService {
     public Order createOrderFromCart(CreateOrderFromCartRequest request) {
         Long userId = request.getUserId();
         String shippingAddress = request.getShippingAddress();
+        String paymentMethod = request.getPaymentMethod();
 
         List<CartItem> cartItems = getValidatedCartItems(userId);
         validateStock(cartItems);
@@ -144,7 +162,7 @@ public class OrderServiceImpl implements OrderService {
         BigDecimal totalAmount = calculateTotalAmount(cartItems, productMap);
 
         Order order = createAndSaveOrder(userId, shippingAddress, totalAmount);
-        processPayment(order, userId, totalAmount);
+        processPayment(order, userId, totalAmount, paymentMethod);
         createOrderItems(order, cartItems, productMap);
         deductInventory(cartItems);
 
@@ -198,17 +216,32 @@ public class OrderServiceImpl implements OrderService {
         return orderRepository.save(order);
     }
 
-    private void processPayment(Order order, Long userId, BigDecimal totalAmount) {
+    private void processPayment(Order order, Long userId, BigDecimal totalAmount, String method) {
         PaymentRequest paymentRequest = new PaymentRequest();
         paymentRequest.setOrderId(order.getOrderId());
         paymentRequest.setUserId(userId);
         paymentRequest.setAmount(totalAmount);
-        paymentRequest.setCurrency("CNY");
-        paymentRequest.setMethod("WeChat");
+        paymentRequest.setMethod(method);
+
+        // 根据支付方式设置币种
+        String currency;
+        switch (method) {
+            case "WeChat":
+            case "PayNow":
+            case "PayLah":
+            case "FaceRecognition":
+                currency = "SGD";
+                break;
+            default:
+                currency = "CNY"; // 默认币种
+        }
+        paymentRequest.setCurrency(currency);
 
         ApiResponse<Payment> paymentRes = paymentFeignClient.processPayment(paymentRequest);
         if (!paymentRes.isSuccess() || paymentRes.getData() == null ||
                 !"PAID".equalsIgnoreCase(paymentRes.getData().getPaymentStatus())) {
+            // 可选：回滚订单或打日志
+            orderRepository.deleteById(order.getOrderId());
             throw new RuntimeException("支付失败，订单未完成");
         }
 
