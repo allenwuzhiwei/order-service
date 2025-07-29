@@ -26,4 +26,16 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
      @return 对应状态的订单列表
      */
     List<Order> findByOrderStatus(String orderStatus);
+
+    /*
+     chatbox 用
+     */
+    // 查询该用户的所有订单，按创建时间倒序排列
+    List<Order> findByUserIdOrderByCreateDatetimeDesc(Long userId);
+
+    // 查询该用户的订单总数
+    int countByUserId(Long userId);
+
+    // 查询该用户指定状态的订单数量
+    int countByUserIdAndOrderStatus(Long userId, String status);
 }
