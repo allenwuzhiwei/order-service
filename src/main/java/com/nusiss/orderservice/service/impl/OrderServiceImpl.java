@@ -101,13 +101,17 @@ public class OrderServiceImpl implements OrderService {
             case "WeChat":
             case "PayNow":
             case "PayLah":
-            case "FaceRecognition":
+//            case "FaceRecognition":
                 currency = "SGD";
                 break;
             default:
                 currency = "CNY"; // 默认币种
         }
         paymentRequest.setCurrency(currency);
+
+        // 新增字段（从 product 获取）
+        paymentRequest.setProductId(product.getId());
+        paymentRequest.setSellerId(product.getSellerId());
 
         // 发起远程调用
         ApiResponse<Payment> paymentRes = paymentFeignClient.processPayment(paymentRequest);
@@ -162,7 +166,7 @@ public class OrderServiceImpl implements OrderService {
         BigDecimal totalAmount = calculateTotalAmount(cartItems, productMap);
 
         Order order = createAndSaveOrder(userId, shippingAddress, totalAmount);
-        processPayment(order, userId, totalAmount, paymentMethod);
+        processPayment(order, userId, totalAmount, paymentMethod, productMap);
         createOrderItems(order, cartItems, productMap);
         deductInventory(cartItems);
 
@@ -216,12 +220,20 @@ public class OrderServiceImpl implements OrderService {
         return orderRepository.save(order);
     }
 
-    private void processPayment(Order order, Long userId, BigDecimal totalAmount, String method) {
+    private void processPayment(Order order, Long userId, BigDecimal totalAmount, String method, Map<Long, Product> productMap) {
         PaymentRequest paymentRequest = new PaymentRequest();
         paymentRequest.setOrderId(order.getOrderId());
         paymentRequest.setUserId(userId);
         paymentRequest.setAmount(totalAmount);
         paymentRequest.setMethod(method);
+
+        // 从 productMap 获取任意一个商品作为支付信息（用于记录 productId 和 sellerId）
+        Product product = productMap.values().stream().findFirst().orElse(null);
+        if (product == null) {
+            throw new RuntimeException("订单中无有效商品，无法发起支付");
+        }
+        paymentRequest.setProductId(product.getId());
+        paymentRequest.setSellerId(product.getSellerId());
 
         // 根据支付方式设置币种
         String currency;
@@ -229,7 +241,7 @@ public class OrderServiceImpl implements OrderService {
             case "WeChat":
             case "PayNow":
             case "PayLah":
-            case "FaceRecognition":
+//            case "FaceRecognition":
                 currency = "SGD";
                 break;
             default:
