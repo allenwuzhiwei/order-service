@@ -3,11 +3,13 @@ package com.nusiss.orderservice.controller;
 import com.nusiss.commonservice.config.ApiResponse;
 import com.nusiss.orderservice.dto.CreateOrderFromCartRequest;
 import com.nusiss.orderservice.dto.DirectOrderRequest;
+import com.nusiss.orderservice.dto.FacePaymentDirectOrderRequest;
 import com.nusiss.orderservice.entity.Order;
 import com.nusiss.orderservice.service.OrderService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Date;
 import java.util.List;
@@ -43,6 +45,32 @@ public class OrderController {
     }
 
     /*
+     人脸识别下单接口（包含图像路径）
+     流程：前端传入人脸图像路径 + 商品信息，后端通过图像识别出 userId 并完成下单
+     */
+    @PostMapping("/direct/face-recognition")
+    public ResponseEntity<ApiResponse<Order>> createOrderWithFaceRecognition(
+            @RequestParam("productId") Long productId,
+            @RequestParam("quantity") Integer quantity,
+            @RequestParam("shippingAddress") String shippingAddress,
+            @RequestParam("paymentMethod") String paymentMethod,
+            @RequestParam("useFaceRecognition") Boolean useFaceRecognition,
+            @RequestPart("faceImage") MultipartFile faceImage
+    ) {
+        FacePaymentDirectOrderRequest request = new FacePaymentDirectOrderRequest();
+        request.setProductId(productId);
+        request.setQuantity(quantity);
+        request.setShippingAddress(shippingAddress);
+        request.setPaymentMethod(paymentMethod);
+        request.setUseFaceRecognition(useFaceRecognition);
+
+        Order order = orderService.createOrderWithFaceRecognition(request, faceImage);
+        return ResponseEntity.ok(ApiResponse.success(order));
+    }
+
+
+
+    /*
      从购物车创建订单（校验库存 + 创建订单 + 扣库存 + 清空购物车）
      @param request 请求体，包括 userId 和 shippingAddress
      @return 创建好的订单信息
@@ -52,6 +80,30 @@ public class OrderController {
         Order createdOrder = orderService.createOrderFromCart(request);
         return ResponseEntity.ok(ApiResponse.success(createdOrder));
     }
+
+    /*
+     人脸识别下单 - 从购物车提交（包含图像路径）
+     前端传入人脸图像 + 收货地址 + 支付方式
+     后端通过图像识别出 userId 并调用下单逻辑
+     */
+    @PostMapping("/fromCart/face-recognition")
+    public ResponseEntity<ApiResponse<Order>> createOrderFromCartWithFaceRecognition(
+            @RequestParam("shippingAddress") String shippingAddress,
+            @RequestParam("paymentMethod") String paymentMethod,
+            @RequestParam("useFaceRecognition") Boolean useFaceRecognition,
+            @RequestPart("faceImage") MultipartFile faceImage
+    ) {
+        // 构建请求 DTO
+        CreateOrderFromCartRequest request = new CreateOrderFromCartRequest();
+        request.setShippingAddress(shippingAddress);
+        request.setPaymentMethod(paymentMethod);
+        request.setUseFaceRecognition(useFaceRecognition);
+
+        // 调用 Service 层逻辑
+        Order createdOrder = orderService.createOrderFromCartWithFaceRecognition(request, faceImage);
+        return ResponseEntity.ok(ApiResponse.success(createdOrder));
+    }
+
 
 
     /*
