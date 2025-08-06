@@ -1,14 +1,18 @@
 package com.nusiss.orderservice.service.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nusiss.commonservice.entity.*;
 import com.nusiss.orderservice.dto.CreateOrderFromCartRequest;
 import com.nusiss.orderservice.dto.DirectOrderRequest;
+import com.nusiss.orderservice.dto.FacePaymentDirectOrderRequest;
 import com.nusiss.orderservice.entity.Order;
 import com.nusiss.orderservice.dao.OrderRepository;
 import com.nusiss.orderservice.entity.OrderItem;
 import com.nusiss.orderservice.service.OrderService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.*;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
 import com.nusiss.orderservice.dao.OrderItemRepository;
@@ -17,6 +21,7 @@ import com.nusiss.commonservice.feign.ProductFeignClient;
 import com.nusiss.commonservice.feign.InventoryFeignClient;
 import com.nusiss.commonservice.feign.PaymentFeignClient;
 import com.nusiss.commonservice.feign.ShoppingCartFeignClient;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -49,32 +54,74 @@ public class OrderServiceImpl implements OrderService {
     @Autowired
     private ShoppingCartFeignClient shoppingCartFeignClient;
 
+    /*
+     直接下单逻辑-普通支付
+     */
     @Override
     public Order createDirectOrder(DirectOrderRequest request) {
+        return createDirectOrderInternal(request);
+    }
+
+    /*
+     直接下单逻辑-人脸识别支付
+     */
+    @Override
+    public Order createOrderWithFaceRecognition(FacePaymentDirectOrderRequest request, MultipartFile faceImage) {
+        // Step 1: 调用人脸识别服务
+        ResponseEntity<String> response = paymentFeignClient.verifyFace(faceImage);
+
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            throw new RuntimeException("调用人脸识别服务失败");
+        }
+
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode root = mapper.readTree(response.getBody());
+
+            if (!"200".equals(root.get("status").asText())) {
+                throw new RuntimeException("人脸识别失败：" + root.get("message").asText());
+            }
+
+            Long userId = Long.parseLong(root.get("userId").asText());
+            System.out.println("人脸识别返回的 userId: " + userId);
+            request.setUserId(userId); // 注入识别出的 userId
+
+        } catch (Exception e) {
+            throw new RuntimeException("解析人脸识别结果失败", e);
+        }
+
+        // Step 2: 调用共用下单逻辑
+        return createDirectOrderInternal(request);
+    }
+
+
+
+    /*
+     核心直接下单逻辑（供普通支付、人脸支付复用）
+     */
+    private Order createDirectOrderInternal(DirectOrderRequest request) {
         Long productId = request.getProductId();
         Integer quantity = request.getQuantity();
 
-        // ===== 1. 获取商品详情（product-service）=====
+        // ===== 1. 获取商品详情 (product-service) =====
         ApiResponse<Product> productRes = productFeignClient.getProductById(productId);
         if (!productRes.isSuccess() || productRes.getData() == null) {
             throw new RuntimeException("商品不存在或无法获取商品信息");
         }
         Product product = productRes.getData();
 
-        // ===== 2. 获取库存信息（inventory-service）=====
+        // ===== 2. 获取库存信息 (inventory-service) =====
         ApiResponse<Integer> stockRes = inventoryFeignClient.getInventoryQuantity(productId);
         if (!stockRes.isSuccess() || stockRes.getData() == null) {
             throw new RuntimeException("无法获取库存信息");
         }
-
         Integer availableStock = stockRes.getData();
         if (availableStock < quantity) {
             throw new RuntimeException("库存不足，无法下单");
         }
 
-        // ===== 3. 先创建订单（此时支付状态为 UNPAID）=====
+        // ===== 3. 创建订单（状态为 UNPAID） =====
         Order order = new Order();
-        order.setUserId(request.getUserId());
         order.setOrderStatus("CREATED");
         order.setPaymentStatus("UNPAID");
         BigDecimal totalAmount = product.getPrice().multiply(BigDecimal.valueOf(quantity));
@@ -85,37 +132,32 @@ public class OrderServiceImpl implements OrderService {
 
         order = orderRepository.save(order); // 此时 orderId 已生成
 
-        // ===== 4. 调用 payment-service 发起支付（使用真实 orderId）=====
+        // ===== 4. 调用 payment-service 发起支付 =====
         PaymentRequest paymentRequest = new PaymentRequest();
         paymentRequest.setOrderId(order.getOrderId());
         paymentRequest.setUserId(request.getUserId());
         paymentRequest.setAmount(totalAmount);
+        paymentRequest.setMethod(request.getPaymentMethod());
 
-        // 从请求中获取支付方式
+        // 设置币种
         String method = request.getPaymentMethod();
-        paymentRequest.setMethod(method);
-
-        // 根据支付方式动态设置币种（Currency）
         String currency;
         switch (method) {
             case "WeChat":
             case "PayNow":
-            case "PayLah":
-//            case "FaceRecognition":
+            case "FaceRecognition":
                 currency = "SGD";
                 break;
             default:
-                currency = "CNY"; // 默认币种
+                currency = "CNY";
         }
         paymentRequest.setCurrency(currency);
 
-        // 新增字段（从 product 获取）
+        // 设置卖家信息
         paymentRequest.setProductId(product.getId());
         paymentRequest.setSellerId(product.getSellerId());
 
-        // 发起远程调用
         ApiResponse<Payment> paymentRes = paymentFeignClient.processPayment(paymentRequest);
-
         if (!paymentRes.isSuccess() || paymentRes.getData() == null ||
                 !"PAID".equalsIgnoreCase(paymentRes.getData().getPaymentStatus())) {
             throw new RuntimeException("支付失败，订单未创建");
@@ -127,7 +169,7 @@ public class OrderServiceImpl implements OrderService {
         order.setUpdateDatetime(LocalDateTime.now());
         orderRepository.save(order);
 
-        // ===== 6. 扣减库存（inventory-service）=====
+        // ===== 6. 扣减库存 (inventory-service) =====
         InventoryChangeRequest changeRequest = new InventoryChangeRequest();
         changeRequest.setProductId(productId);
         changeRequest.setQuantity(quantity);
@@ -143,8 +185,8 @@ public class OrderServiceImpl implements OrderService {
         item.setOrderId(order.getOrderId());
         item.setProductId(product.getId());
         item.setProductName(product.getName());
-        item.setQuantity(quantity);
         item.setProductPrice(product.getPrice());
+        item.setQuantity(quantity);
         item.setSubtotalAmount(totalAmount);
         item.setCreateDatetime(LocalDateTime.now());
         item.setCreateUser(SYSTEM_USER);
@@ -156,6 +198,7 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public Order createOrderFromCart(CreateOrderFromCartRequest request) {
+//        overrideUserIdIfFaceRecognitionEnabled(request);
         Long userId = request.getUserId();
         String shippingAddress = request.getShippingAddress();
         String paymentMethod = request.getPaymentMethod();
@@ -173,6 +216,40 @@ public class OrderServiceImpl implements OrderService {
         shoppingCartFeignClient.clearCart(userId);
         return order;
     }
+
+    /*
+     从购物车下单逻辑 - 人脸识别支付
+     */
+    @Override
+    public Order createOrderFromCartWithFaceRecognition(CreateOrderFromCartRequest request, MultipartFile faceImage) {
+        // Step 1：调用人脸识别服务
+        ResponseEntity<String> response = paymentFeignClient.verifyFace(faceImage);
+
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            throw new RuntimeException("调用人脸识别服务失败");
+        }
+
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode root = mapper.readTree(response.getBody());
+
+            if (!"200".equals(root.get("status").asText())) {
+                throw new RuntimeException("人脸识别失败: " + root.get("message").asText());
+            }
+
+            Long userId = Long.parseLong(root.get("userId").asText());
+            System.out.println("人脸识别返回的 userId: " + userId);
+
+            request.setUserId(userId); // 注入识别出的用户ID
+
+        } catch (Exception e) {
+            throw new RuntimeException("解析人脸识别结果失败", e);
+        }
+
+        // Step 2：调用已有从购物车下单的主逻辑
+        return createOrderFromCart(request);
+    }
+
 
     private List<CartItem> getValidatedCartItems(Long userId) {
         ApiResponse<List<CartItem>> cartRes = shoppingCartFeignClient.getCartItems(userId);
@@ -294,6 +371,23 @@ public class OrderServiceImpl implements OrderService {
             }
         }
     }
+
+//    //处理人脸识别(从购物车下单)
+//    private void overrideUserIdIfFaceRecognitionEnabled(CreateOrderFromCartRequest request) {
+//        if (Boolean.TRUE.equals(request.getUseFaceRecognition())) {
+//            String faceImagePath = request.getFaceImagePath();
+//            if (faceImagePath == null || faceImagePath.isBlank()) {
+//                throw new RuntimeException("用户启用了人脸识别，但未提供人脸图像路径");
+//            }
+//
+//            ApiResponse<Long> faceRes = paymentFeignClient.verifyFace(faceImagePath);
+//            if (!faceRes.isSuccess() || faceRes.getData() == null) {
+//                throw new RuntimeException("人脸识别失败，无法识别用户身份");
+//            }
+//
+//            request.setUserId(faceRes.getData());
+//        }
+//    }
 
 
     @Override
