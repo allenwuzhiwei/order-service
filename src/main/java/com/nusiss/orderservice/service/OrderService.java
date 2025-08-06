@@ -2,7 +2,9 @@ package com.nusiss.orderservice.service;
 
 import com.nusiss.orderservice.dto.CreateOrderFromCartRequest;
 import com.nusiss.orderservice.dto.DirectOrderRequest;
+import com.nusiss.orderservice.dto.FacePaymentDirectOrderRequest;
 import com.nusiss.orderservice.entity.Order;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Date;
 import java.util.List;
@@ -34,9 +36,19 @@ public interface OrderService {
     Order createDirectOrder(DirectOrderRequest request);
 
     /*
-    获取购物车项（通过 Feign） + 校验库存 + 创建订单（状态为 UNPAID） + 调用支付接口，判断是否支付成功（通过 Feign） + 更新订单为 PAID + 创建订单项 + 扣减库存（通过 Feign） + 清空购物车项（通过 Feign）
+    人脸支付下单：上传图像 + 商品信息，通过人脸识别验证后进行下单
+    */
+    Order createOrderWithFaceRecognition(FacePaymentDirectOrderRequest request, MultipartFile faceImage);
+
+    /*
+    从购物车下单：支持正常支付流程（通过 Feign 获取购物车项）
     */
     Order createOrderFromCart(CreateOrderFromCartRequest request);
+
+    /*
+    人脸支付从购物车下单：上传图像 + 获取购物车项 + 人脸识别后下单
+    */
+    Order createOrderFromCartWithFaceRecognition(CreateOrderFromCartRequest request, MultipartFile faceImage);
 
     /*
      根据 ID 查询订单详情
