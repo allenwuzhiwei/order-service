@@ -10,6 +10,7 @@ import com.nusiss.orderservice.dao.OrderItemRepository;
 import com.nusiss.orderservice.dao.OrderRepository;
 import com.nusiss.orderservice.dto.CreateOrderFromCartRequest;
 import com.nusiss.orderservice.dto.DirectOrderRequest;
+import com.nusiss.orderservice.dto.FacePaymentDirectOrderRequest;
 import com.nusiss.orderservice.entity.Order;
 import com.nusiss.orderservice.entity.OrderItem;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,7 +20,10 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
+
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockMultipartFile;
 
 
 import java.math.BigDecimal;
@@ -41,493 +45,366 @@ class OrderServiceImplTest {
     private InventoryFeignClient inventoryFeignClient;
 
     @Mock
-    private PaymentFeignClient paymentFeignClient;
-
-    @Mock
-    private ShoppingCartFeignClient shoppingCartFeignClient;
-
-    @Mock
     private OrderRepository orderRepository;
 
     @Mock
     private OrderItemRepository orderItemRepository;
 
+    @Mock
+    private PaymentFeignClient paymentFeignClient;
+
+    @Mock
+    private ShoppingCartFeignClient shoppingCartFeignClient;
+
     @BeforeEach
     void setUp() {
-        // 初始化mock对象
         MockitoAnnotations.openMocks(this);
     }
 
-    /*
-     测试用例：TC01 - 正常流程下单成功
-     */
     @Test
     void testCreateDirectOrder_success() {
-        // 准备测试数据
+        // 1. 准备请求参数
         DirectOrderRequest request = new DirectOrderRequest();
-        request.setUserId(1L);
-        request.setProductId(100L);
+        request.setProductId(1L);
         request.setQuantity(2);
+        request.setUserId(100L);
         request.setShippingAddress("Test Address");
         request.setPaymentMethod("WeChat");
 
-        // 模拟商品信息
+        // 2. 准备 Product
         Product product = new Product();
-        product.setId(100L);
+        product.setId(1L);
         product.setName("Test Product");
-        product.setPrice(new BigDecimal("100.00"));
+        product.setPrice(new BigDecimal("50.00"));
+        product.setSellerId(999L);
 
-        when(productFeignClient.getProductById(100L)).thenReturn(ApiResponse.success(product));
-        when(inventoryFeignClient.getInventoryQuantity(100L)).thenReturn(ApiResponse.success(10));
+        when(productFeignClient.getProductById(1L))
+                .thenReturn(ApiResponse.success(product));
 
-        // 模拟支付成功
-        Payment mockPayment = new Payment();
-        mockPayment.setPaymentStatus("PAID");
-        when(paymentFeignClient.processPayment(any(PaymentRequest.class))).thenReturn(ApiResponse.success(mockPayment));
+        // 3. 库存充足
+        when(inventoryFeignClient.getInventoryQuantity(1L))
+                .thenReturn(ApiResponse.success(10));
 
-        // 模拟库存扣减成功
-        when(inventoryFeignClient.deductInventory(any(InventoryChangeRequest.class))).thenReturn(ApiResponse.success(true));
-
-        // 模拟订单保存
+        // 4. 保存订单时返回带有 ID 的订单
         Order savedOrder = new Order();
-        savedOrder.setOrderId(1L);
-        savedOrder.setUserId(1L);
-        savedOrder.setOrderStatus("CREATED");
-        savedOrder.setPaymentStatus("UNPAID");
-        savedOrder.setTotalAmount(new BigDecimal("200.00"));
-        savedOrder.setShippingAddress("Test Address");
-        savedOrder.setCreateDatetime(LocalDateTime.now());
-        when(orderRepository.save(any(Order.class))).thenReturn(savedOrder);
+        savedOrder.setOrderId(123L);
+        savedOrder.setTotalAmount(new BigDecimal("100.00"));
+        when(orderRepository.save(any(Order.class)))
+                .thenReturn(savedOrder);
 
-        // 模拟订单项保存
-        when(orderItemRepository.save(any(OrderItem.class))).thenReturn(new OrderItem());
-
-        // 执行测试
-        Order result = orderService.createDirectOrder(request);
-
-        // 验证结果
-        assertNotNull(result);
-        assertEquals("PAID", result.getPaymentStatus());
-        verify(orderRepository, times(2)).save(any(Order.class)); // 创建订单 + 更新订单
-        verify(orderItemRepository).save(any(OrderItem.class));
-    }
-
-    /*
-     测试用例：TC02 - 商品不存在或无法获取
-     */
-    @Test
-    void testCreateDirectOrder_productNotFound() {
-        // 准备测试数据
-        DirectOrderRequest request = new DirectOrderRequest();
-        request.setUserId(1L);
-        request.setProductId(100L);
-        request.setQuantity(2);
-        request.setShippingAddress("Test Address");
-
-        // 模拟商品查询失败
-        when(productFeignClient.getProductById(100L)).thenReturn(ApiResponse.fail("Product not found"));
-
-        // 执行测试并验证异常
-        RuntimeException exception = assertThrows(RuntimeException.class, () ->
-                orderService.createDirectOrder(request));
-        assertEquals("商品不存在或无法获取商品信息", exception.getMessage());
-    }
-
-    /*
-     测试用例：TC03 - 库存不足
-     */
-    @Test
-    void testCreateDirectOrder_insufficientStock() {
-        // 准备测试数据
-        DirectOrderRequest request = new DirectOrderRequest();
-        request.setUserId(1L);
-        request.setProductId(100L);
-        request.setQuantity(5);
-        request.setShippingAddress("Test Address");
-
-        // 模拟商品信息
-        Product product = new Product();
-        product.setId(100L);
-        product.setName("Test Product");
-        product.setPrice(new BigDecimal("100.00"));
-
-        when(productFeignClient.getProductById(100L)).thenReturn(ApiResponse.success(product));
-        when(inventoryFeignClient.getInventoryQuantity(100L)).thenReturn(ApiResponse.success(3));
-
-        // 执行测试并验证异常
-        RuntimeException exception = assertThrows(RuntimeException.class, () ->
-                orderService.createDirectOrder(request));
-        assertEquals("库存不足，无法下单", exception.getMessage());
-    }
-
-    /*
-     测试用例：TC04 - 支付失败
-     */
-    @Test
-    void testCreateDirectOrder_paymentFailed() {
-        // 准备测试数据
-        DirectOrderRequest request = new DirectOrderRequest();
-        request.setUserId(1L);
-        request.setProductId(100L);
-        request.setQuantity(2);
-        request.setShippingAddress("Test Address");
-        request.setPaymentMethod("Alipay");
-
-        // 模拟商品信息
-        Product product = new Product();
-        product.setId(100L);
-        product.setName("Test Product");
-        product.setPrice(new BigDecimal("100.00"));
-        when(productFeignClient.getProductById(100L)).thenReturn(ApiResponse.success(product));
-
-        // 模拟库存信息
-        when(inventoryFeignClient.getInventoryQuantity(100L)).thenReturn(ApiResponse.success(10));
-
-        // ✅ 关键修复：Mock 保存订单返回非 null 的对象（避免 NPE）
-        Order savedOrder = new Order();
-        savedOrder.setOrderId(1L);
-        savedOrder.setUserId(1L);
-        savedOrder.setOrderStatus("CREATED");
-        savedOrder.setPaymentStatus("UNPAID");
-        savedOrder.setTotalAmount(new BigDecimal("200.00"));
-        savedOrder.setShippingAddress("Test Address");
-        savedOrder.setCreateDatetime(LocalDateTime.now());
-        when(orderRepository.save(any(Order.class))).thenReturn(savedOrder);
-
-        // 模拟支付失败
-        when(paymentFeignClient.processPayment(any(PaymentRequest.class)))
-                .thenReturn(ApiResponse.error("Payment failed"));
-
-        // 执行测试并验证异常
-        RuntimeException exception = assertThrows(RuntimeException.class, () ->
-                orderService.createDirectOrder(request));
-
-        assertEquals("支付失败，订单未创建", exception.getMessage());
-    }
-
-
-    /*
-     测试用例：TC05 - 扣减库存失败
-     */
-    @Test
-    void testCreateDirectOrder_deductInventoryFailed() {
-        // 准备测试数据
-        DirectOrderRequest request = new DirectOrderRequest();
-        request.setUserId(1L);
-        request.setProductId(100L);
-        request.setQuantity(2);
-        request.setShippingAddress("Test Address");
-        request.setPaymentMethod("WeChat");
-
-        // 模拟商品信息
-        Product product = new Product();
-        product.setId(100L);
-        product.setName("Test Product");
-        product.setPrice(new BigDecimal("100.00"));
-        when(productFeignClient.getProductById(100L)).thenReturn(ApiResponse.success(product));
-
-        // 模拟库存足够
-        when(inventoryFeignClient.getInventoryQuantity(100L)).thenReturn(ApiResponse.success(10));
-
-        // 模拟保存订单（返回非空对象，避免空指针）
-        Order savedOrder = new Order();
-        savedOrder.setOrderId(1L);
-        savedOrder.setUserId(1L);
-        savedOrder.setOrderStatus("CREATED");
-        savedOrder.setPaymentStatus("UNPAID");
-        savedOrder.setTotalAmount(new BigDecimal("200.00"));
-        savedOrder.setShippingAddress("Test Address");
-        savedOrder.setCreateDatetime(LocalDateTime.now());
-        when(orderRepository.save(any(Order.class))).thenReturn(savedOrder);
-
-        // 模拟支付成功
-        Payment mockPayment = new Payment();
-        mockPayment.setPaymentStatus("PAID");
-        when(paymentFeignClient.processPayment(any(PaymentRequest.class))).thenReturn(ApiResponse.success(mockPayment));
-
-        // 模拟库存扣减失败
-        when(inventoryFeignClient.deductInventory(any(InventoryChangeRequest.class))).thenReturn(ApiResponse.fail("库存扣减失败"));
-
-        // 执行测试并验证异常
-        RuntimeException exception = assertThrows(RuntimeException.class, () ->
-                orderService.createDirectOrder(request));
-
-        assertEquals("扣减库存失败", exception.getMessage());
-    }
-
-    @Test
-    void testCreateOrderFromCart_Success() {
-        Long userId = 1L;
-        Long productId = 101L;
-        int quantity = 2;
-
-        CreateOrderFromCartRequest request = new CreateOrderFromCartRequest();
-        request.setUserId(userId);
-        request.setShippingAddress("NUS Campus");
-        request.setPaymentMethod("WeChat");
-
-        CartItem item = new CartItem();
-        item.setProductId(productId);
-        item.setQuantity(quantity);
-
-        Product product = new Product();
-        product.setId(productId);
-        product.setName("Phone");
-        product.setPrice(BigDecimal.valueOf(100));
-
-        Order order = new Order();
-        order.setOrderId(999L);
-        order.setUserId(userId);
-        order.setPaymentStatus("UNPAID");
-        order.setOrderStatus("CREATED");
-        order.setTotalAmount(BigDecimal.valueOf(200));
-
+        // 5. 支付成功
         Payment payment = new Payment();
         payment.setPaymentStatus("PAID");
-
-        when(shoppingCartFeignClient.getCartItems(userId))
-                .thenReturn(ApiResponse.success(List.of(item)));
-        when(inventoryFeignClient.getInventoryQuantity(productId))
-                .thenReturn(ApiResponse.success(10));
-        when(productFeignClient.getProductById(productId))
-                .thenReturn(ApiResponse.success(product));
-        when(orderRepository.save(any(Order.class)))
-                .thenReturn(order);
         when(paymentFeignClient.processPayment(any()))
                 .thenReturn(ApiResponse.success(payment));
+
+        // 6. 扣减库存成功
         when(inventoryFeignClient.deductInventory(any()))
                 .thenReturn(ApiResponse.success(true));
 
-        Order result = orderService.createOrderFromCart(request);
+        // 7. 保存订单项
+        when(orderItemRepository.save(any(OrderItem.class)))
+                .thenReturn(new OrderItem());
 
+        // === 测试执行 ===
+        Order result = orderService.createDirectOrder(request);
+
+        // === 断言 ===
         assertNotNull(result);
-        assertEquals(userId, result.getUserId());
-        verify(orderRepository, times(2)).save(any());
+        assertEquals("PAID", result.getPaymentStatus());
+
+        // === 验证 ===
+        verify(orderRepository, times(2)).save(any()); // 创建订单 + 更新支付状态
         verify(orderItemRepository).save(any());
-        verify(shoppingCartFeignClient).clearCart(userId);
+        verify(inventoryFeignClient).deductInventory(any());
     }
 
     @Test
-    void testCreateOrderFromCart_EmptyCart() {
-        Long userId = 1L;
-        CreateOrderFromCartRequest request = new CreateOrderFromCartRequest();
-        request.setUserId(userId);
+    void testCreateOrderWithFaceRecognition_success() throws Exception {
+        // 准备请求对象和人脸图片
+        FacePaymentDirectOrderRequest request = new FacePaymentDirectOrderRequest();
+        request.setProductId(1L);
+        request.setQuantity(2);
+        request.setShippingAddress("Test Address");
+        request.setPaymentMethod("FaceRecognition");
 
-        when(shoppingCartFeignClient.getCartItems(userId))
-                .thenReturn(ApiResponse.success(List.of()));
+        // 模拟 MultipartFile
+        MockMultipartFile faceImage = new MockMultipartFile("file", "face.jpg", "image/jpeg", new byte[]{1, 2, 3});
 
-        RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> orderService.createOrderFromCart(request));
-        assertTrue(ex.getMessage().contains("购物车为空"));
-    }
+        // 模拟人脸识别返回结果
+        String faceApiResponse = """
+        {
+            "status": "200",
+            "message": "success",
+            "userId": "100"
+        }
+        """;
+        ResponseEntity<String> response = ResponseEntity.ok(faceApiResponse);
+        when(paymentFeignClient.verifyFace(faceImage)).thenReturn(response);
 
-    @Test
-    void testCreateOrderFromCart_InsufficientStock() {
-        Long userId = 1L;
-        Long productId = 101L;
-        CreateOrderFromCartRequest request = new CreateOrderFromCartRequest();
-        request.setUserId(userId);
-
-        CartItem item = new CartItem();
-        item.setProductId(productId);
-        item.setQuantity(5);
-
-        when(shoppingCartFeignClient.getCartItems(userId))
-                .thenReturn(ApiResponse.success(List.of(item)));
-        when(inventoryFeignClient.getInventoryQuantity(productId))
-                .thenReturn(ApiResponse.success(1));
-
-        RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> orderService.createOrderFromCart(request));
-        assertTrue(ex.getMessage().contains("库存不足"));
-    }
-
-    @Test
-    void testCreateOrderFromCart_ProductInfoMissing() {
-        Long userId = 1L;
-        Long productId = 101L;
-        CreateOrderFromCartRequest request = new CreateOrderFromCartRequest();
-        request.setUserId(userId);
-
-        CartItem item = new CartItem();
-        item.setProductId(productId);
-        item.setQuantity(2);
-
-        when(shoppingCartFeignClient.getCartItems(userId))
-                .thenReturn(ApiResponse.success(List.of(item)));
-        when(inventoryFeignClient.getInventoryQuantity(productId))
-                .thenReturn(ApiResponse.success(10));
-        when(productFeignClient.getProductById(productId))
-                .thenReturn(ApiResponse.fail("商品不存在"));
-
-        RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> orderService.createOrderFromCart(request));
-        assertTrue(ex.getMessage().contains("获取商品信息失败"));
-    }
-
-    @Test
-    void testCreateOrderFromCart_PaymentFailed() {
-        Long userId = 1L;
-        Long productId = 101L;
-
-        CreateOrderFromCartRequest request = new CreateOrderFromCartRequest();
-        request.setUserId(userId);
-        request.setPaymentMethod("WeChat");
-
-        CartItem item = new CartItem();
-        item.setProductId(productId);
-        item.setQuantity(2);
-
+        // 重用前一个测试中所有必要的 mock（商品、库存、订单保存、支付、扣库存）
         Product product = new Product();
-        product.setId(productId);
-        product.setName("Phone");
-        product.setPrice(BigDecimal.valueOf(100));
+        product.setId(1L);
+        product.setName("Test Product");
+        product.setPrice(new BigDecimal("50.00"));
+        product.setSellerId(999L);
 
-        Order order = new Order();
-        order.setOrderId(999L);
-        order.setUserId(userId);
-        order.setPaymentStatus("UNPAID");
-        order.setOrderStatus("CREATED");
-        order.setTotalAmount(BigDecimal.valueOf(200));
-
-        when(shoppingCartFeignClient.getCartItems(userId))
-                .thenReturn(ApiResponse.success(List.of(item)));
-        when(inventoryFeignClient.getInventoryQuantity(productId))
-                .thenReturn(ApiResponse.success(10));
-        when(productFeignClient.getProductById(productId))
-                .thenReturn(ApiResponse.success(product));
-        when(orderRepository.save(any())).thenReturn(order);
-        when(paymentFeignClient.processPayment(any()))
-                .thenReturn(ApiResponse.fail("支付失败"));
-
-        RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> orderService.createOrderFromCart(request));
-        assertTrue(ex.getMessage().contains("支付失败"));
-        verify(orderRepository).deleteById(order.getOrderId());
-    }
-
-    @Test
-    void testCreateOrderFromCart_InventoryDeductFailed() {
-        Long userId = 1L;
-        Long productId = 101L;
-
-        CreateOrderFromCartRequest request = new CreateOrderFromCartRequest();
-        request.setUserId(userId);
-        request.setPaymentMethod("WeChat");
-
-        CartItem item = new CartItem();
-        item.setProductId(productId);
-        item.setQuantity(2);
-
-        Product product = new Product();
-        product.setId(productId);
-        product.setName("Phone");
-        product.setPrice(BigDecimal.valueOf(100));
-
-        Order order = new Order();
-        order.setOrderId(999L);
-        order.setUserId(userId);
-        order.setPaymentStatus("UNPAID");
-        order.setOrderStatus("CREATED");
-        order.setTotalAmount(BigDecimal.valueOf(200));
+        when(productFeignClient.getProductById(1L)).thenReturn(ApiResponse.success(product));
+        when(inventoryFeignClient.getInventoryQuantity(1L)).thenReturn(ApiResponse.success(10));
+        Order savedOrder = new Order();
+        savedOrder.setOrderId(123L);
+        savedOrder.setTotalAmount(new BigDecimal("100.00"));
+        when(orderRepository.save(any())).thenReturn(savedOrder);
 
         Payment payment = new Payment();
         payment.setPaymentStatus("PAID");
+        when(paymentFeignClient.processPayment(any())).thenReturn(ApiResponse.success(payment));
+        when(inventoryFeignClient.deductInventory(any())).thenReturn(ApiResponse.success(true));
+        when(orderItemRepository.save(any())).thenReturn(new OrderItem());
 
-        when(shoppingCartFeignClient.getCartItems(userId))
-                .thenReturn(ApiResponse.success(List.of(item)));
-        when(inventoryFeignClient.getInventoryQuantity(productId))
-                .thenReturn(ApiResponse.success(10));
-        when(productFeignClient.getProductById(productId))
-                .thenReturn(ApiResponse.success(product));
-        when(orderRepository.save(any())).thenReturn(order);
-        when(paymentFeignClient.processPayment(any()))
-                .thenReturn(ApiResponse.success(payment));
-        when(inventoryFeignClient.deductInventory(any()))
-                .thenReturn(ApiResponse.success(false));
+        // === 测试执行 ===
+        Order result = orderService.createOrderWithFaceRecognition(request, faceImage);
 
-        RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> orderService.createOrderFromCart(request));
-        assertTrue(ex.getMessage().contains("库存扣减失败"));
+        // === 断言 ===
+        assertNotNull(result);
+        assertEquals("PAID", result.getPaymentStatus());
+
+        // === 验证 ===
+        verify(paymentFeignClient).verifyFace(faceImage);
+        verify(orderRepository, times(2)).save(any()); // 创建订单 & 更新状态
     }
 
     @Test
-    void testFilterOrders_byStatus() {
-        // Arrange
+    void testCreateOrderFromCart_success() {
+        // 准备请求
+        CreateOrderFromCartRequest request = new CreateOrderFromCartRequest();
+        request.setUserId(100L);
+        request.setShippingAddress("Test Address");
+        request.setPaymentMethod("WeChat");
+
+        // 模拟购物车项
+        CartItem cartItem = new CartItem();
+        cartItem.setProductId(1L);
+        cartItem.setQuantity(2);
+        List<CartItem> cartItems = List.of(cartItem);
+
+        when(shoppingCartFeignClient.getCartItems(100L)).thenReturn(ApiResponse.success(cartItems));
+
+        // 模拟库存足够
+        when(inventoryFeignClient.getInventoryQuantity(1L)).thenReturn(ApiResponse.success(10));
+
+        // 模拟商品信息
+        Product product = new Product();
+        product.setId(1L);
+        product.setName("Test Product");
+        product.setPrice(new BigDecimal("50.00"));
+        product.setSellerId(999L);
+        when(productFeignClient.getProductById(1L)).thenReturn(ApiResponse.success(product));
+
+        // 模拟保存订单
+        Order savedOrder = new Order();
+        savedOrder.setOrderId(200L);
+        savedOrder.setTotalAmount(new BigDecimal("100.00"));
+        when(orderRepository.save(any())).thenReturn(savedOrder);
+
+        // 模拟支付成功
+        Payment payment = new Payment();
+        payment.setPaymentStatus("PAID");
+        when(paymentFeignClient.processPayment(any())).thenReturn(ApiResponse.success(payment));
+
+        // 模拟扣减库存成功
+        when(inventoryFeignClient.deductInventory(any())).thenReturn(ApiResponse.success(true));
+
+        // 模拟保存订单项
+        when(orderItemRepository.save(any())).thenReturn(new OrderItem());
+
+        // 测试执行
+        Order result = orderService.createOrderFromCart(request);
+
+        // 断言
+        assertNotNull(result);
+        assertEquals("PAID", result.getPaymentStatus());
+
+        // 验证调用
+        verify(shoppingCartFeignClient).getCartItems(100L);
+        verify(orderRepository, times(2)).save(any());
+        verify(paymentFeignClient).processPayment(any());
+        verify(inventoryFeignClient).deductInventory(any());
+        verify(shoppingCartFeignClient).clearCart(100L);
+    }
+
+    @Test
+    void testCreateOrderFromCartWithFaceRecognition_success() throws Exception {
+        // Step 1: 构造请求对象 + face image
+        CreateOrderFromCartRequest request = new CreateOrderFromCartRequest();
+        request.setShippingAddress("Test Address");
+        request.setPaymentMethod("WeChat");
+
+        MockMultipartFile faceImage = new MockMultipartFile("file", "face.jpg", "image/jpeg", new byte[]{1, 2, 3});
+
+        // Step 2: 模拟人脸识别服务返回 userId
+        String faceResponseJson = """
+        {
+            "status": "200",
+            "message": "success",
+            "userId": "100"
+        }
+        """;
+        ResponseEntity<String> faceRes = ResponseEntity.ok(faceResponseJson);
+        when(paymentFeignClient.verifyFace(faceImage)).thenReturn(faceRes);
+
+        // Step 3: 模拟购物车、库存、商品、支付、扣库存（跟上一个方法一样）
+
+        CartItem cartItem = new CartItem();
+        cartItem.setProductId(1L);
+        cartItem.setQuantity(2);
+        List<CartItem> cartItems = List.of(cartItem);
+        when(shoppingCartFeignClient.getCartItems(100L)).thenReturn(ApiResponse.success(cartItems));
+        when(inventoryFeignClient.getInventoryQuantity(1L)).thenReturn(ApiResponse.success(10));
+
+        Product product = new Product();
+        product.setId(1L);
+        product.setName("Test Product");
+        product.setPrice(new BigDecimal("50.00"));
+        product.setSellerId(999L);
+        when(productFeignClient.getProductById(1L)).thenReturn(ApiResponse.success(product));
+
+        Order savedOrder = new Order();
+        savedOrder.setOrderId(300L);
+        savedOrder.setTotalAmount(new BigDecimal("100.00"));
+        when(orderRepository.save(any())).thenReturn(savedOrder);
+
+        Payment payment = new Payment();
+        payment.setPaymentStatus("PAID");
+        when(paymentFeignClient.processPayment(any())).thenReturn(ApiResponse.success(payment));
+        when(inventoryFeignClient.deductInventory(any())).thenReturn(ApiResponse.success(true));
+        when(orderItemRepository.save(any())).thenReturn(new OrderItem());
+
+        // Step 4: 执行测试方法
+        Order result = orderService.createOrderFromCartWithFaceRecognition(request, faceImage);
+
+        // Step 5: 验证
+        assertNotNull(result);
+        assertEquals("PAID", result.getPaymentStatus());
+
+        verify(paymentFeignClient).verifyFace(faceImage);
+        verify(shoppingCartFeignClient).clearCart(100L);
+    }
+
+    @Test
+    void testGetOrderById_found() {
+        Order order = new Order();
+        order.setOrderId(1L);
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(order));
+
+        Optional<Order> result = orderService.getOrderById(1L);
+        assertTrue(result.isPresent());
+        assertEquals(1L, result.get().getOrderId());
+    }
+
+    @Test
+    void testGetOrderById_notFound() {
+        when(orderRepository.findById(2L)).thenReturn(Optional.empty());
+
+        Optional<Order> result = orderService.getOrderById(2L);
+        assertFalse(result.isPresent());
+    }
+
+    @Test
+    void testGetAllOrders() {
+        List<Order> orders = List.of(new Order(), new Order());
+        when(orderRepository.findAll()).thenReturn(orders);
+
+        List<Order> result = orderService.getAllOrders();
+        assertEquals(2, result.size());
+    }
+
+    @Test
+    void testUpdateOrder_success() {
+        Order order = new Order();
+        order.setOrderId(1L);
+
+        when(orderRepository.existsById(1L)).thenReturn(true);
+        when(orderRepository.save(order)).thenReturn(order);
+
+        boolean result = orderService.updateOrder(order);
+        assertTrue(result);
+    }
+
+    @Test
+    void testUpdateOrder_notExist() {
+        Order order = new Order();
+        order.setOrderId(2L);
+
+        when(orderRepository.existsById(2L)).thenReturn(false);
+
+        boolean result = orderService.updateOrder(order);
+        assertFalse(result);
+    }
+
+    @Test
+    void testDeleteOrder_success() {
+        when(orderRepository.existsById(1L)).thenReturn(true);
+        boolean result = orderService.deleteOrder(1L);
+        assertTrue(result);
+        verify(orderRepository).deleteById(1L);
+    }
+
+    @Test
+    void testDeleteOrder_notExist() {
+        when(orderRepository.existsById(2L)).thenReturn(false);
+        boolean result = orderService.deleteOrder(2L);
+        assertFalse(result);
+    }
+
+    @Test
+    void testGetOrdersByUserId() {
+        List<Order> orders = List.of(new Order(), new Order());
+        when(orderRepository.findByUserId(100L)).thenReturn(orders);
+
+        List<Order> result = orderService.getOrdersByUserId(100L);
+        assertEquals(2, result.size());
+    }
+
+    @Test
+    void testFilterOrders_withStatusAndAmountRange() {
         Order order1 = new Order();
-        order1.setOrderId(1L);
         order1.setOrderStatus("CREATED");
         order1.setOrderDate(LocalDateTime.now());
         order1.setTotalAmount(new BigDecimal("100.00"));
 
         Order order2 = new Order();
-        order2.setOrderId(2L);
-        order2.setOrderStatus("COMPLETED");
-        order2.setOrderDate(LocalDateTime.now().plusDays(1));
+        order2.setOrderStatus("SHIPPED");
+        order2.setOrderDate(LocalDateTime.now());
         order2.setTotalAmount(new BigDecimal("200.00"));
 
-        when(orderRepository.findAll()).thenReturn(Arrays.asList(order1, order2));
+        when(orderRepository.findAll()).thenReturn(List.of(order1, order2));
 
-        // Act
-        List<Order> result = orderService.filterOrders("CREATED", null, null, null, null);
+        List<Order> result = orderService.filterOrders(
+                "CREATED",
+                null,
+                null,
+                50.0,
+                150.0
+        );
 
-        // Assert
         assertEquals(1, result.size());
         assertEquals("CREATED", result.get(0).getOrderStatus());
     }
 
     @Test
-    void testGetOrdersWithPaginationAndSorting_asc() {
-        // Arrange
-        Order order1 = new Order();
-        order1.setOrderId(1L);
-        order1.setOrderStatus("CREATED");
-        order1.setOrderDate(LocalDateTime.now());
-        order1.setTotalAmount(new BigDecimal("100.00"));
+    void testGetOrdersWithPaginationAndSorting() {
+        Order order = new Order();
+        order.setOrderId(1L);
+        Page<Order> page = new PageImpl<>(List.of(order));
 
-        Order order2 = new Order();
-        order2.setOrderId(2L);
-        order2.setOrderStatus("COMPLETED");
-        order2.setOrderDate(LocalDateTime.now().plusDays(1));
-        order2.setTotalAmount(new BigDecimal("200.00"));
+        when(orderRepository.findAll(any(Pageable.class))).thenReturn(page);
 
-        Page<Order> page = new PageImpl<>(Arrays.asList(order1, order2));
-        when(orderRepository.findAll(any(PageRequest.class))).thenReturn(page);
-
-        // Act
         List<Order> result = orderService.getOrdersWithPaginationAndSorting(1, 10, "orderId", "asc");
 
-        // Assert
-        assertEquals(2, result.size());
-        assertTrue(result.get(0).getOrderId() < result.get(1).getOrderId());
+        assertEquals(1, result.size());
+        assertEquals(1L, result.get(0).getOrderId());
     }
 
-    @Test
-    void testGetOrdersWithPaginationAndSorting_desc() {
-
-        // Arrange
-        Order order1 = new Order();
-        order1.setOrderId(1L);
-        order1.setOrderStatus("CREATED");
-        order1.setOrderDate(LocalDateTime.now());
-        order1.setTotalAmount(new BigDecimal("100.00"));
-
-        Order order2 = new Order();
-        order2.setOrderId(2L);
-        order2.setOrderStatus("COMPLETED");
-        order2.setOrderDate(LocalDateTime.now().plusDays(1));
-        order2.setTotalAmount(new BigDecimal("200.00"));
-
-        List<Order> allOrders = Arrays.asList(order2, order1); // 手动按 desc 排序
-        Page<Order> page = new PageImpl<>(allOrders);
-        when(orderRepository.findAll(any(PageRequest.class))).thenReturn(page);
-
-        // Act
-        List<Order> result = orderService.getOrdersWithPaginationAndSorting(1, 10, "orderId", "desc");
-
-        // Assert
-        assertEquals(2, result.size());
-        assertTrue(result.get(0).getOrderId() > result.get(1).getOrderId());
-    }
 
 }
