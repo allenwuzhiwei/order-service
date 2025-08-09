@@ -122,6 +122,8 @@ public class OrderServiceImpl implements OrderService {
 
         // ===== 3. 创建订单（状态为 UNPAID） =====
         Order order = new Order();
+        order.setUserId(request.getUserId()); // 绑定用户ID
+        order.setOrderDate(LocalDateTime.now()); // 下单时间
         order.setOrderStatus("CREATED");
         order.setPaymentStatus("UNPAID");
         BigDecimal totalAmount = product.getPrice().multiply(BigDecimal.valueOf(quantity));
@@ -292,6 +294,7 @@ public class OrderServiceImpl implements OrderService {
         order.setPaymentStatus("UNPAID");
         order.setTotalAmount(totalAmount);
         order.setShippingAddress(shippingAddress);
+        order.setOrderDate(LocalDateTime.now()); // 设置下单时间
         order.setCreateDatetime(LocalDateTime.now());
         order.setCreateUser(SYSTEM_USER);
         return orderRepository.save(order);
